@@ -29,9 +29,7 @@ class _ScreenHomeState extends State<ScreenHome> {
   final SpeechToText speechToText = SpeechToText();
   final FlutterTts flutterTts = FlutterTts();
 
-  bool isBusy = false;
-  bool isListening = false;
-  bool isSpeaking = false;
+  bool isActive = false;
 
   String screenText = "Habla en español";
 
@@ -44,29 +42,11 @@ class _ScreenHomeState extends State<ScreenHome> {
   Future<void> _configureTts() async {
     await flutterTts.setLanguage("es-ES");
     await flutterTts.setSpeechRate(0.5);
-    await flutterTts.setVolume(1.0);
-    await flutterTts.setPitch(1.0);
-
-    flutterTts.setCompletionHandler(() async {
-      await Future.delayed(const Duration(milliseconds: 900));
-      await _safeStartListening();
-    });
   }
 
-  Future<void> _safeStartListening() async {
-    if (isBusy) return;
-
-    isBusy = true;
-
-    await speechToText.stop();
-    await Future.delayed(const Duration(milliseconds: 600));
-
+  Future<void> _start() async {
     final available = await speechToText.initialize(
-      onStatus: (status) {
-        debugPrint("STATUS: $status");
-      },
       onError: (error) {
-        debugPrint("ERROR: ${error.errorMsg}");
         setState(() {
           screenText = "Error: ${error.errorMsg}";
         });
@@ -74,7 +54,6 @@ class _ScreenHomeState extends State<ScreenHome> {
     );
 
     if (!available) {
-      isBusy = false;
       setState(() {
         screenText = "STT no disponible";
       });
@@ -82,8 +61,7 @@ class _ScreenHomeState extends State<ScreenHome> {
     }
 
     setState(() {
-      isListening = true;
-      isSpeaking = false;
+      isActive = true;
       screenText = "Escuchando...";
     });
 
@@ -94,7 +72,6 @@ class _ScreenHomeState extends State<ScreenHome> {
       listenFor: const Duration(seconds: 20),
       partialResults: true,
       cancelOnError: true,
-
       onResult: (result) async {
         final text = result.recognizedWords;
         if (text.isEmpty) return;
@@ -104,53 +81,31 @@ class _ScreenHomeState extends State<ScreenHome> {
         });
 
         if (result.finalResult) {
-          await _handleSpeech(text);
+          await speechToText.stop();
+
+          await flutterTts.stop();
+          await flutterTts.speak(text);
+
+          setState(() {
+            isActive = false;
+          });
         }
       },
     );
-
-    isBusy = false;
   }
 
-  Future<void> _handleSpeech(String text) async {
-    if (isBusy) return;
-
-    isBusy = true;
-
-    await speechToText.stop();
-
-    setState(() {
-      isListening = false;
-      isSpeaking = true;
-    });
-
-    await flutterTts.stop();
-    await flutterTts.speak(text);
-
-    // 🔥 clave: cooldown REAL del motor Android
-    await Future.delayed(const Duration(milliseconds: 1200));
-
-    isBusy = false;
-  }
-
-  Future<void> _stopAll() async {
-    await speechToText.cancel();
+  Future<void> _stop() async {
     await speechToText.stop();
     await flutterTts.stop();
 
-    isBusy = false;
-
     setState(() {
-      isListening = false;
-      isSpeaking = false;
+      isActive = false;
       screenText = "Detenido";
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    final active = isListening || isSpeaking || isBusy;
-
     return Scaffold(
       backgroundColor: Colors.black,
       body: SafeArea(
@@ -176,21 +131,21 @@ class _ScreenHomeState extends State<ScreenHome> {
               padding: const EdgeInsets.only(bottom: 50),
               child: GestureDetector(
                 onTap: () async {
-                  if (!active) {
-                    await _safeStartListening();
+                  if (!isActive) {
+                    await _start();
                   } else {
-                    await _stopAll();
+                    await _stop();
                   }
                 },
                 child: Container(
                   width: 160,
                   height: 160,
                   decoration: BoxDecoration(
-                    color: active ? Colors.red : Colors.green,
+                    color: isActive ? Colors.red : Colors.green,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
-                    active ? Icons.stop : Icons.mic,
+                    isActive ? Icons.stop : Icons.mic,
                     color: Colors.white,
                     size: 80,
                   ),
