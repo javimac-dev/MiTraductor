@@ -46,9 +46,27 @@ class _ScreenHomeState extends State<ScreenHome> {
 
   Future<void> _start() async {
     final available = await speechToText.initialize(
-      onError: (error) {
+      onError: (error) async {
+        debugPrint("ERROR: ${error.errorMsg}");
+
+        // silencios normales del usuario
+        if (
+            error.errorMsg == "error_no_match" ||
+            error.errorMsg == "error_speech_timeout" ||
+            error.errorMsg == "error_speech_time_out"
+        ) {
+          await _stop();
+
+          setState(() {
+            screenText = "No escuché nada";
+          });
+
+          return;
+        }
+
         setState(() {
           screenText = "Error: ${error.errorMsg}";
+          isActive = false;
         });
       },
     );
@@ -68,12 +86,17 @@ class _ScreenHomeState extends State<ScreenHome> {
     await speechToText.listen(
       localeId: "es_ES",
       listenMode: ListenMode.confirmation,
-      pauseFor: const Duration(seconds: 3),
-      listenFor: const Duration(seconds: 20),
+
+      // más tolerante para frases largas
+      pauseFor: const Duration(seconds: 8),
+      listenFor: const Duration(minutes: 2),
+
       partialResults: true,
       cancelOnError: true,
+
       onResult: (result) async {
         final text = result.recognizedWords;
+
         if (text.isEmpty) return;
 
         setState(() {
